@@ -19,6 +19,9 @@
 import argparse
 import json
 import os
+import sys
+import subprocess
+import logging
 from datetime import datetime, timezone
 from os.path import join
 
@@ -30,6 +33,7 @@ from oauth2client import clientsecrets
 
 from gcalendar import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET, TOKEN_STORAGE_VERSION, VERSION
 from gcalendar.gcalendar import GCalendar
+from gcalendar.notification import notify_events
 
 # the home folder
 HOME_DIRECTORY = os.environ.get('HOME') or os.path.expanduser('~')
@@ -158,6 +162,104 @@ def handle_exception(client_id, client_secret, account_id, storage_path, output,
     return failed, None
 
 
+def setup_crontab(interval, notify_minutes, account, calendars, debug):
+    """Setup or update a crontab entry for calendar notifications"""
+    # Get the current user's crontab
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
+        current_crontab = result.stdout
+    except subprocess.CalledProcessError:
+        # No existing crontab
+        current_crontab = ""
+    
+    # Check if our cronjob is already there
+    gcal_job_prefix = "# GCalendar notification job"
+    if gcal_job_prefix in current_crontab:
+        print("Existing gcalendar crontab entry found. Updating...")
+        # Remove existing GCalendar crontab entries
+        new_lines = []
+        skip_line = False
+        for line in current_crontab.splitlines():
+            if line.startswith(gcal_job_prefix):
+                skip_line = True
+                continue
+            if skip_line and line.strip() and not line.startswith('#'):
+                skip_line = False
+            if not skip_line:
+                new_lines.append(line)
+        
+        current_crontab = "\n".join(new_lines)
+    
+    # Build the calendar argument string
+    calendar_arg = " ".join([f'"{cal}"' for cal in calendars]) if calendars != ["*"] else "*"
+    
+    # Build the command with all options
+    notify_cmd = f"gcalendar-notify --notify {notify_minutes} --account {account}"
+    if calendar_arg != "*":
+        notify_cmd += f" --calendar {calendar_arg}"
+    if debug:
+        notify_cmd += " --debug"
+    
+    # Add the new cronjob
+    new_crontab = current_crontab.rstrip() + f"\n\n{gcal_job_prefix}\n*/{interval} * * * * {notify_cmd}\n"
+    
+    # Write to a temporary file
+    temp_crontab = os.path.join(HOME_DIRECTORY, ".gcalendar_crontab_temp")
+    with open(temp_crontab, "w") as f:
+        f.write(new_crontab)
+    
+    # Install the new crontab
+    try:
+        subprocess.run(['crontab', temp_crontab], check=True)
+        print(f"Successfully set up crontab to check every {interval} minutes for upcoming events")
+        print(f"Will notify you {notify_minutes} minutes before each event")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to set up crontab: {e}")
+    
+    # Clean up
+    os.remove(temp_crontab)
+
+
+def remove_crontab():
+    """Remove gcalendar crontab entries"""
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
+        current_crontab = result.stdout
+        
+        if "# GCalendar notification job" not in current_crontab:
+            print("No gcalendar crontab entry found")
+            return
+        
+        # Remove GCalendar crontab entries
+        new_lines = []
+        skip_line = False
+        for line in current_crontab.splitlines():
+            if line.startswith("# GCalendar notification job"):
+                skip_line = True
+                continue
+            if skip_line and line.strip() and not line.startswith('#'):
+                skip_line = False
+            if not skip_line:
+                new_lines.append(line)
+        
+        new_crontab = "\n".join(new_lines)
+        
+        # Write to a temporary file
+        temp_crontab = os.path.join(HOME_DIRECTORY, ".gcalendar_crontab_temp")
+        with open(temp_crontab, "w") as f:
+            f.write(new_crontab)
+        
+        # Install the new crontab
+        subprocess.run(['crontab', temp_crontab], check=True)
+        print("Successfully removed gcalendar crontab entry")
+        
+        # Clean up
+        os.remove(temp_crontab)
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to remove crontab: {e}")
+
+
 def process_request(account_ids, args):
     client_id = args.client_id
     client_secret = args.client_secret
@@ -204,6 +306,28 @@ def process_request(account_ids, args):
             else:
                 calendars.extend(result)
         print_list(calendars, args.output)
+    elif args.setup_cron is not None:
+        # Handle crontab setup
+        interval = args.setup_cron
+        notify_mins = int(args.notify) if args.notify else 15
+
+        if interval <= 0:
+            print("Error: Cron interval must be greater than 0")
+            return 1
+
+        for account_id in account_ids:
+            setup_crontab(
+                interval,
+                notify_mins,
+                account_id,
+                args.calendar,
+                args.debug
+            )
+        return 0
+    elif args.remove_cron:
+        # Remove the crontab entry
+        remove_crontab()
+        return 0
     else:
         # List events
         no_of_days = int(args.no_of_days)
@@ -227,6 +351,12 @@ def process_request(account_ids, args):
             else:
                 events.extend(result)
         events = sorted(events, key=lambda event: event["start_date"] + event["start_time"])
+        
+        # Handle notifications if requested
+        if args.notify:
+            notify_minutes = int(args.notify)
+            notify_events(events, notify_minutes)
+            
         print_events(events, args.output)
 
 
@@ -240,6 +370,9 @@ def main():
     group.add_argument("--list-accounts", action="store_true", help="list the id of gcalendar accounts")
     group.add_argument("--status", action="store_true", help="print the status of the gcalendar account")
     group.add_argument("--reset", action="store_true", help="reset the account")
+    group.add_argument("--setup-cron", type=int, metavar="INTERVAL", help="setup crontab to check every INTERVAL minutes")
+    group.add_argument("--remove-cron", action="store_true", help="remove gcalendar crontab entry")
+    
     parser.add_argument("--calendar", type=str, default=["*"], nargs="*", help="calendars to list events from")
     parser.add_argument("--since", type=validate_since, help="number of days to include")
     parser.add_argument("--no-of-days", type=str, default="7", help="number of days to include")
@@ -249,9 +382,14 @@ def main():
     parser.add_argument("--client-id", type=str, help="the Google client id")
     parser.add_argument("--client-secret", type=str,
                         help="the Google client secret")
+    parser.add_argument("--notify", type=str, help="send notification before event (minutes)")
     parser.add_argument('--version', action='version', version='%(prog)s ' + VERSION)
     parser.add_argument("--debug", action="store_true", help="run gcalendar in debug mode")
     args = parser.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.debug else logging.WARNING
+    logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
     # Create the config folder if not exists
     if not os.path.exists(CONFIG_DIRECTORY):
@@ -261,4 +399,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

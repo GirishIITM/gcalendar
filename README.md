@@ -59,8 +59,8 @@ python3 -m gcalendar
 ## Help
 
 ```text
-usage: gcalendar [-h] [--list-calendars | --list-accounts | --status | --reset] [--calendar [CALENDAR [CALENDAR ...]]] [--no-of-days NO_OF_DAYS] [--account ACCOUNT]
-                 [--output {txt,json}] [--client-id CLIENT_ID] [--client-secret CLIENT_SECRET] [--version] [--debug]
+usage: gcalendar [-h] [--list-calendars | --list-accounts | --status | --reset | --setup-cron INTERVAL | --remove-cron] [--calendar [CALENDAR [CALENDAR ...]]] [--no-of-days NO_OF_DAYS] [--account ACCOUNT]
+                 [--output {txt,json}] [--client-id CLIENT_ID] [--client-secret CLIENT_SECRET] [--notify NOTIFY] [--version] [--debug]
 
 Read your Google Calendar events from terminal.
 
@@ -70,6 +70,8 @@ optional arguments:
   --list-accounts       list the id of gcalendar accounts
   --status              print the status of the gcalendar account
   --reset               reset the account
+  --setup-cron INTERVAL setup crontab to check every INTERVAL minutes
+  --remove-cron         remove gcalendar crontab entry
   --calendar [CALENDAR [CALENDAR ...]]
                         calendars to list events from
   --no-of-days NO_OF_DAYS
@@ -80,6 +82,7 @@ optional arguments:
                         the Google client id
   --client-secret CLIENT_SECRET
                         the Google client secret
+  --notify NOTIFY       send notification before event (minutes)
   --version             show program's version number and exit
   --debug               run gcalendar in debug mode
 ```
@@ -136,6 +139,36 @@ gcalendar --account foo --reset
 # reset the account named bar
 gcalendar --account bar --reset
 ```
+
+### Desktop Notifications
+
+```shell script
+# Get desktop notifications for events starting in the next 15 minutes
+gcalendar --notify 15
+
+# Get desktop notifications for events starting in the next 30 minutes
+gcalendar --notify 30
+```
+
+### Automated Notifications with Cron
+
+gcalendar can automatically check for upcoming events and send notifications:
+
+```shell script
+# Setup cron to check every 5 minutes and notify 15 minutes before events
+gcalendar --setup-cron 5 --notify 15
+
+# Setup cron to check every 10 minutes and notify 30 minutes before events
+gcalendar --setup-cron 10 --notify 30
+
+# Setup cron for a specific account and calendar
+gcalendar --setup-cron 5 --notify 15 --account work --calendar "Meeting Calendar" "Important Dates"
+
+# Remove gcalendar from crontab
+gcalendar --remove-cron
+```
+
+The cron job will run in the background and send desktop notifications when events are approaching.
 
 ## Issues
 

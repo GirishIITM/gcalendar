@@ -28,19 +28,24 @@ def __package_files(directory):
 
 setuptools.setup(
     name="gcalendar",
-    version="0.4.1",
+    version="0.5.0",
     description="Read Google Calendar events from your terminal.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Gobinath Loganathan",
     author_email="slgobinath@gmail.com",
     url="https://github.com/slgobinath/gcalendar",
-    download_url="https://github.com/slgobinath/gcalendar/archive/v0.4.1.tar.gz",
+    download_url="https://github.com/slgobinath/gcalendar/archive/v0.5.0.tar.gz",
     packages=setuptools.find_packages(),
     package_data={},
     install_requires=requires,
-    entry_points={'console_scripts': ['gcalendar = gcalendar.__main__:main']},
-    keywords='linux utility google-calendar',
+    entry_points={
+        'console_scripts': [
+            'gcalendar = gcalendar.__main__:main',
+            'gcalendar-notify = gcalendar.notify_cron:main'
+        ]
+    },
+    keywords='linux utility google-calendar notifications',
     classifiers=[
                     "Operating System :: POSIX :: Linux",
                     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
